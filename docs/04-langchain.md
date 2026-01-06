@@ -1,463 +1,348 @@
-# Phase 4: LangChain Integration
+# Phase 4: Introducing LangChain Agents
 
 > ⏱️ **Time to complete**: 15 minutes
 
-In this phase, we'll restructure our application using LangChain's powerful abstractions. This prepares us for adding tools and building a proper agent in the next phases.
+In this phase, we'll convert our chat app to use a **LangChain Agent**. This prepares us for adding tools in Phase 5.
 
 ---
 
 ## 🎯 Learning Objectives
 
 By the end of this phase, you will:
-- Understand LangChain's core concepts (chains, prompts, output parsers)
-- Refactor the app to use prompt templates
-- Add structured output handling
-- Prepare the foundation for tool integration
+- Understand what an AI agent is
+- Convert from direct LLM calls to an agent
+- Use the new `create_agent()` function
+- Prepare for tool integration
 
 ---
 
-## 🔗 What is LangChain?
+## 🤖 What is an Agent?
 
-LangChain is a framework for building applications with language models. It provides:
-
-- **Standardized interfaces** - Work with any LLM the same way
-- **Composability** - Chain operations together
-- **Tool integration** - Let LLMs call functions
-- **Memory management** - Track conversation history
-- **Agents** - LLMs that can decide what actions to take
-
-### Core Concepts
+An **agent** is an AI that can:
+1. **Think** about what to do
+2. **Act** using tools (APIs, functions, etc.)
+3. **Observe** the results
+4. **Repeat** until task is complete
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    LangChain Architecture                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐    ┌─────────────┐    ┌──────────────┐   │
-│  │    Prompt    │───▶│     LLM     │───▶│    Output    │   │
-│  │   Template   │    │   (Model)   │    │    Parser    │   │
-│  └──────────────┘    └─────────────┘    └──────────────┘   │
-│         │                   │                   │           │
-│         └───────────────────┴───────────────────┘           │
-│                           │                                  │
-│                    ┌──────▼──────┐                          │
-│                    │    Chain    │                          │
-│                    └─────────────┘                          │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────┐
+│            Agent Loop                    │
+│                                          │
+│   Think ──▶ Act ──▶ Observe             │
+│     ▲                   │                │
+│     └───────────────────┘                │
+│       (repeat until done)                │
+└─────────────────────────────────────────┘
 ```
 
-| Concept | Purpose |
-|---------|---------|
-| **Prompt Template** | Reusable message templates with variables |
-| **LLM** | The language model (GPT-4o, etc.) |
-| **Output Parser** | Structures the LLM's raw text output |
-| **Chain** | Connects components together |
+**In this phase**, we create an agent WITHOUT tools - just to learn the concept. **In Phase 5**, we'll add tools.
 
 ---
 
-## 📝 Step 1: Create a Prompt Template
+## 📁 Step 1: Create Your Project Folder
 
-Instead of hardcoding the system prompt, let's use a ChatPromptTemplate.
+```bash
+mkdir -p phase-04
+cd phase-04
+```
 
-Create a new file called `app_langchain.py`:
+---
+
+## 📝 Step 2: Start with Phase 3 Code
+
+Create `app.py` by copying the essentials from Phase 3:
 
 ```python
-"""
-Chainlit app with proper LangChain integration.
-Uses prompt templates for structured prompting.
-"""
-
 import os
 import chainlit as cl
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
 
-# Load environment variables
 load_dotenv()
 
-
 def get_llm():
-    """Create and return the LLM client."""
     return ChatOpenAI(
-        model="gpt-4o-mini",
+        model="openai/gpt-4.1-nano",
         api_key=os.getenv("GITHUB_TOKEN"),
-        base_url="https://models.inference.ai.azure.com",
-        temperature=0.7,
-        streaming=True,
+        base_url="https://models.github.ai/inference",
     )
-
-
-# Define a structured prompt template
-PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """You are a helpful AI assistant named Aria. You have the following traits:
-- Friendly and conversational tone
-- Concise but thorough answers
-- You admit when you don't know something
-- You can help with coding, writing, analysis, and general questions
-
-Current date: {current_date}
-"""
-    ),
-    # This placeholder will be filled with conversation history
-    MessagesPlaceholder(variable_name="chat_history"),
-    # The current user message
-    ("human", "{input}"),
-])
-
 
 @cl.on_chat_start
 async def start():
-    """Initialize the chat session."""
-    from datetime import date
-    
-    # Store components in session
-    cl.user_session.set("llm", get_llm())
-    cl.user_session.set("prompt", PROMPT_TEMPLATE)
     cl.user_session.set("chat_history", [])
-    cl.user_session.set("current_date", date.today().strftime("%B %d, %Y"))
-    
-    await cl.Message(
-        content="👋 Hi! I'm Aria, your AI assistant. How can I help you today?"
-    ).send()
-
+    await cl.Message(content="👋 Hi! I'm Aria. How can I help?").send()
 
 @cl.on_message
 async def main(message: cl.Message):
-    """Handle incoming messages using LangChain chain."""
-    # Retrieve session data
-    llm = cl.user_session.get("llm")
-    prompt = cl.user_session.get("prompt")
-    chat_history = cl.user_session.get("chat_history")
-    current_date = cl.user_session.get("current_date")
+    # We'll replace this with agent code
+    pass
+```
+
+---
+
+## 🔧 Step 3: Add the Agent Import
+
+Add this import at the top:
+
+```python
+from langchain.agents import create_agent
+```
+
+---
+
+## 📋 Step 4: Create the System Prompt
+
+Add a system prompt that defines the agent's behavior. Put this after `load_dotenv()`:
+
+```python
+from datetime import date
+
+SYSTEM_PROMPT = f"""You are a helpful AI assistant named Aria.
+- Be friendly and conversational
+- Give concise but thorough answers
+- Admit when you don't know something
+
+Current date: {date.today().strftime("%B %d, %Y")}
+"""
+```
+
+---
+
+## 🤖 Step 5: Create the Agent
+
+Add a function to create the agent. Put this after `get_llm()`:
+
+```python
+def create_assistant_agent():
+    llm = get_llm()
     
-    # Format the prompt with variables
-    formatted_messages = prompt.format_messages(
-        current_date=current_date,
-        chat_history=chat_history,
-        input=message.content,
+    agent = create_agent(
+        model=llm,
+        tools=[],  # No tools yet - we'll add them in Phase 5!
+        system_prompt=SYSTEM_PROMPT,
     )
+    
+    return agent
+```
+
+**Key points:**
+- `tools=[]` - Empty list means no tools (for now)
+- `system_prompt` - Defines the agent's personality
+- The agent wraps the LLM with reasoning capabilities
+
+---
+
+## 🚀 Step 6: Update on_chat_start
+
+Replace the `start()` function to create the agent:
+
+```python
+@cl.on_chat_start
+async def start():
+    agent = create_assistant_agent()
+    
+    cl.user_session.set("agent", agent)
+    cl.user_session.set("chat_history", [])
+    
+    await cl.Message(content="👋 Hi! I'm Aria. How can I help?").send()
+```
+
+---
+
+## 💬 Step 7: Handle Messages with the Agent
+
+Replace the `main()` function with agent-based message handling:
+
+```python
+@cl.on_message
+async def main(message: cl.Message):
+    agent = cl.user_session.get("agent")
+    chat_history = cl.user_session.get("chat_history")
+    
+    # Add user message to history (simple dict format)
+    chat_history.append({"role": "user", "content": message.content})
     
     # Stream the response
     msg = cl.Message(content="")
     full_response = ""
-    
-    async for chunk in llm.astream(formatted_messages):
-        if chunk.content:
-            full_response += chunk.content
-            await msg.stream_token(chunk.content)
-    
+
+    async for data, _ in agent.astream(
+        {"messages": chat_history}, 
+        stream_mode="messages"
+    ):
+        chunks = data.content_blocks
+        if len(chunks) > 0:
+            chunk = chunks[-1]["text"]
+            full_response += chunk
+            await msg.stream_token(chunk)
+
     await msg.send()
-    
-    # Update chat history
-    chat_history.append(HumanMessage(content=message.content))
-    chat_history.append(AIMessage(content=full_response))
+
+    # Save assistant response
+    chat_history.append({"role": "assistant", "content": full_response})
     cl.user_session.set("chat_history", chat_history)
 ```
 
-### 🔍 What's New?
-
-| Component | Purpose |
-|-----------|---------|
-| `ChatPromptTemplate` | Defines the structure of messages sent to the LLM |
-| `MessagesPlaceholder` | Dynamically inserts conversation history |
-| `format_messages()` | Fills in the template variables |
-| `{current_date}` | Template variable - notice how the bot now knows today's date |
+**What's different from Phase 3:**
+| Phase 3 | Phase 4 |
+|---------|---------|
+| `llm.astream(messages)` | `agent.astream({"messages": ...})` |
+| `HumanMessage()` objects | Simple dicts `{"role": "user", ...}` |
+| Direct LLM call | Agent loop (even without tools) |
 
 ---
 
-## ▶️ Step 2: Test the New App
+## 📋 Your Complete Code
 
-Stop the previous server (Ctrl+C) and run the new one:
-
-```bash
-chainlit run app_langchain.py -w
-```
-
-Test it:
-1. Ask "What's today's date?" - It should know!
-2. Have a conversation and verify memory works
-3. Notice the assistant identifies as "Aria"
-
----
-
-## ⛓️ Step 3: Create a Proper Chain
-
-LangChain's power comes from chaining components. Let's use LCEL (LangChain Expression Language).
-
-Update `app_langchain.py`:
+Here's what `app.py` should look like now:
 
 ```python
-"""
-Chainlit app with LangChain LCEL chains.
-Demonstrates modern LangChain patterns.
-"""
-
 import os
 from datetime import date
 import chainlit as cl
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from langchain.agents import create_agent
 
-# Load environment variables
 load_dotenv()
 
+SYSTEM_PROMPT = f"""You are a helpful AI assistant named Aria.
+- Be friendly and conversational
+- Give concise but thorough answers
+- Admit when you don't know something
+
+Current date: {date.today().strftime("%B %d, %Y")}
+"""
 
 def get_llm():
-    """Create and return the LLM client."""
     return ChatOpenAI(
-        model="gpt-4o-mini",
+        model="openai/gpt-4.1-nano",
         api_key=os.getenv("GITHUB_TOKEN"),
-        base_url="https://models.inference.ai.azure.com",
-        temperature=0.7,
-        streaming=True,
+        base_url="https://models.github.ai/inference",
     )
 
-
-# Define the prompt template
-PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """You are a helpful AI assistant named Aria. You have the following traits:
-- Friendly and conversational tone
-- Concise but thorough answers
-- You admit when you don't know something
-- You can help with coding, writing, analysis, and general questions
-
-Current date: {current_date}
-"""
-    ),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("human", "{input}"),
-])
-
-
-def create_chain(llm):
-    """
-    Create a LangChain chain using LCEL (LangChain Expression Language).
+def create_assistant_agent():
+    llm = get_llm()
     
-    The chain: input -> add metadata -> prompt -> llm -> output
-    """
-    
-    def add_current_date(inputs: dict) -> dict:
-        """Add the current date to the inputs."""
-        inputs["current_date"] = date.today().strftime("%B %d, %Y")
-        return inputs
-    
-    # LCEL chain using the pipe operator
-    chain = (
-        RunnableLambda(add_current_date)  # Add metadata
-        | PROMPT_TEMPLATE                   # Format the prompt
-        | llm                               # Send to LLM
+    agent = create_agent(
+        model=llm,
+        tools=[],
+        system_prompt=SYSTEM_PROMPT,
     )
     
-    return chain
-
+    return agent
 
 @cl.on_chat_start
 async def start():
-    """Initialize the chat session."""
-    llm = get_llm()
-    chain = create_chain(llm)
+    agent = create_assistant_agent()
     
-    # Store in session
-    cl.user_session.set("chain", chain)
+    cl.user_session.set("agent", agent)
     cl.user_session.set("chat_history", [])
     
-    await cl.Message(
-        content="👋 Hi! I'm Aria, your AI assistant. How can I help you today?"
-    ).send()
-
+    await cl.Message(content="�� Hi! I'm Aria. How can I help?").send()
 
 @cl.on_message
 async def main(message: cl.Message):
-    """Handle incoming messages using the chain."""
-    chain = cl.user_session.get("chain")
+    agent = cl.user_session.get("agent")
     chat_history = cl.user_session.get("chat_history")
     
-    # Prepare input for the chain
-    chain_input = {
-        "input": message.content,
-        "chat_history": chat_history,
-    }
+    chat_history.append({"role": "user", "content": message.content})
     
-    # Stream the response
     msg = cl.Message(content="")
     full_response = ""
-    
-    async for chunk in chain.astream(chain_input):
-        if hasattr(chunk, 'content') and chunk.content:
-            full_response += chunk.content
-            await msg.stream_token(chunk.content)
-    
+
+    async for data, _ in agent.astream(
+        {"messages": chat_history}, 
+        stream_mode="messages"
+    ):
+        chunks = data.content_blocks
+        if len(chunks) > 0:
+            chunk = chunks[-1]["text"]
+            full_response += chunk
+            await msg.stream_token(chunk)
+
     await msg.send()
-    
-    # Update chat history
-    chat_history.append(HumanMessage(content=message.content))
-    chat_history.append(AIMessage(content=full_response))
+
+    chat_history.append({"role": "assistant", "content": full_response})
     cl.user_session.set("chat_history", chat_history)
 ```
 
-### 🔍 Understanding LCEL
+---
 
-LCEL (LangChain Expression Language) uses the pipe operator `|` to chain components:
+## 📄 Step 8: Copy the Chainlit Markdown
 
-```python
-chain = component_a | component_b | component_c
-```
-
-This is equivalent to:
-```python
-result = component_c(component_b(component_a(input)))
-```
-
-**Benefits**:
-- Readable left-to-right flow
-- Each component transforms the data
-- Built-in streaming support
-- Easy to add/remove steps
-
-### The Chain Flow
-
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│   Input     │───▶│  Add Date   │───▶│   Prompt    │───▶│   LLM   │
-│   Dict      │    │  Lambda     │    │  Template   │    │         │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────┘
-      │                   │                  │                │
-  {input,             {input,           [messages]      AI Response
-   chat_history}       chat_history,
-                       current_date}
+```bash
+cp ../phase-03/chainlit.md .
 ```
 
 ---
 
-## 🏗️ Step 4: Prepare for Tools (Agent Preview)
+## ▶️ Step 9: Run and Test
 
-Let's add a preview of what's coming - we'll modify the prompt to make the assistant aware it will have tools.
-
-Update the system message in `PROMPT_TEMPLATE`:
-
-```python
-PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """You are a helpful AI assistant named Aria. You have the following traits:
-- Friendly and conversational tone
-- Concise but thorough answers
-- You admit when you don't know something
-- You can help with coding, writing, analysis, and general questions
-
-In future versions, you will have access to tools like:
-- Weather lookup: Get current weather for any city
-- More tools coming soon!
-
-When a user asks about weather, acknowledge that this feature is coming soon.
-
-Current date: {current_date}
-"""
-    ),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("human", "{input}"),
-])
+```bash
+chainlit run app.py -w
 ```
 
-Test it:
-- Ask "What's the weather in Paris?"
-- The bot should mention the feature is coming soon
+### Test Scenarios
+
+| Test | Expected |
+|------|----------|
+| "Hello!" | Friendly greeting |
+| "What's your name?" | "Aria" |
+| "What's today's date?" | Correct date |
+| Follow-up questions | Context remembered |
 
 ---
 
-## 🗂️ Current Project Structure
+## 💡 What Did We Gain?
+
+Right now, the agent behaves similarly to Phase 3. **So why bother?**
+
+The agent architecture gives us:
+1. **Easy tool integration** - Just add tools to the list (Phase 5!)
+2. **Built-in reasoning** - Agent can decide what to do
+3. **Cleaner code** - Agent handles message flow
+4. **Future-proof** - Ready for advanced features
+
+---
+
+## 🗂️ Project Structure
 
 ```
-langchain-chainlit-workshop/
-├── .venv/
-├── .env                    
-├── .gitignore
-├── requirements.txt
-├── test_github_models.py   
-├── app.py                  # Basic version (Phase 3)
-└── app_langchain.py        # LangChain version (Phase 4)
+phase-04/
+├── app.py          # Agent-based chat
+└── chainlit.md     # Welcome page
 ```
 
 ---
 
-## ✅ Checkpoint: LangChain Integration Complete
+## ✅ Checkpoint
 
-| Test | How | Expected |
-|------|-----|----------|
-| App runs | `chainlit run app_langchain.py -w` | No errors |
-| Date works | Ask "What's today's date?" | Correct date |
-| Memory works | Multi-turn conversation | Context remembered |
-| Name works | Ask "What's your name?" | "Aria" |
-| Weather preview | Ask about weather | "Coming soon" message |
+| Check | Status |
+|-------|--------|
+| Using `create_agent()` | ☐ |
+| `tools=[]` (empty) | ☐ |
+| Streaming works | ☐ |
+| Memory works | ☐ |
+| Date is correct | ☐ |
 
-### 🎉 Chain Working?
+### 🎉 Agent Working?
 
-**Excellent!** You now understand LangChain's core patterns.
+You now have a LangChain agent ready for tools!
 
-👉 **Next up: [Phase 5: Tool Calling with Weather API](05-tool-calling.md)**
-
----
-
-## 🔍 Behind the Scenes: How Chains Work
-
-When you call `chain.astream(input)`:
-
-1. **Input flows through each component**:
-   ```
-   {"input": "Hello", "chat_history": []}
-   ```
-
-2. **RunnableLambda adds date**:
-   ```
-   {"input": "Hello", "chat_history": [], "current_date": "January 6, 2026"}
-   ```
-
-3. **Prompt template formats messages**:
-   ```python
-   [
-       SystemMessage(content="You are Aria...Current date: January 6, 2026"),
-       HumanMessage(content="Hello")
-   ]
-   ```
-
-4. **LLM processes and streams**:
-   ```
-   AIMessageChunk(content="Hi")
-   AIMessageChunk(content=" there")
-   AIMessageChunk(content="!")
-   ```
-
-5. **We capture chunks and display them**
+👉 **Next: [Phase 5: Adding Tools](05-tool-calling.md)**
 
 ---
 
 ## ❓ Common Issues
 
-### "RunnableLambda is not defined"
-Add the import:
-```python
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+### "No module named 'langchain.agents'"
+```bash
+pip install --upgrade langchain langchain-openai
 ```
 
-### Chain doesn't stream properly
-- Make sure `streaming=True` in `ChatOpenAI`
-- Use `chain.astream()` not `chain.invoke()`
-- Check the async for loop captures chunks correctly
+### Streaming not working
+Make sure you have `stream_mode="messages"` in the `astream()` call.
 
-### "TypeError: 'coroutine' object is not iterable"
-- Make sure you're using `async for` not regular `for`
-- Ensure the function is defined with `async def`
-
-### Date is wrong
-- Check your system clock
-- The `date.today()` uses your local timezone
+### "content_blocks" error
+Check you're unpacking correctly: `async for data, _ in agent.astream(...)`

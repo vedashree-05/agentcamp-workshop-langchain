@@ -1,6 +1,33 @@
 """
-Phase 5 Solution: Tool-Calling Agent with Weather API
+Phase 5: LangChain Agent with Tools
 Run with: chainlit run app.py -w
+
+This phase builds on Phase 4 by adding TOOLS to the agent.
+Tools allow the agent to take actions beyond just generating text.
+
+Key Concepts Introduced:
+- Tools: Functions the agent can call to get external data or perform actions
+- Tool calling: The agent decides when to use tools based on user queries
+- Tool visualization: Showing tool calls and results in the Chainlit UI
+- @tool decorator: How to define tools in LangChain
+
+Building on Previous Phases:
+- Phase 2: Same LLM configuration (ChatOpenAI with GitHub Models)
+- Phase 3: Same Chainlit patterns (@cl.on_chat_start, @cl.on_message)
+- Phase 3: Same session management (cl.user_session)
+- Phase 4: Same agent creation pattern (create_agent)
+- Phase 4: Same streaming approach (agent.astream)
+
+What's New (compared to Phase 4):
+- tools=TOOLS instead of tools=[] - the agent now has capabilities!
+- Tool visualization with cl.Step() to show what the agent is doing
+- Handling of AIMessage with tool_calls and ToolMessage responses
+- Updated system prompt mentioning available tools
+
+Prerequisites:
+- Phase 4 completed (Agent without tools working)
+- tools.py file with tool definitions
+- WEATHER_API_KEY in .env (for the weather tool)
 """
 
 import os
@@ -8,73 +35,94 @@ from datetime import date
 import chainlit as cl
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
-from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages.tool import ToolMessage
+from tools import TOOLS  # NEW: Import tools from tools.py
 
-from tools import TOOLS
-
-# Load environment variables
+# Load environment variables (same as all previous phases)
 load_dotenv()
+
+# System prompt for the agent
+# Updated from Phase 4 to mention the available tools
+# This helps the agent understand when to use tools
+SYSTEM_PROMPT = f"""
+You are a helpful AI assistant named Aria.
+
+You have access to tools that let you take actions:
+- get_weather: Get current weather for any city
+
+Guidelines for tool usage:
+- For weather queries, ALWAYS use the get_weather tool rather than making up information
+- When using tools, briefly explain what you're doing
+- If a tool returns an error, explain the issue to the user
+
+You have the following traits:
+- Friendly and conversational tone
+- Concise but thorough answers
+- You admit when you don't know something
+- You can help with coding, writing, analysis, and general questions
+
+Current date: {date.today().strftime("%B %d, %Y")}
+"""
 
 
 def get_llm():
-    """Create and return the LLM client."""
+    """
+    Create and return the LLM client.
+    
+    Same configuration as all previous phases:
+    - ChatOpenAI pointed at GitHub Models endpoint
+    """
     return ChatOpenAI(
-        model="gpt-4o-mini",
-        api_key=os.getenv("GITHUB_TOKEN"),
-        base_url="https://models.inference.ai.azure.com",
+        model="openai/gpt-4.1-nano",       # Same model as previous phases
+        api_key=os.getenv("GITHUB_TOKEN"), # Same auth as previous phases
+        base_url="https://models.github.ai/inference",  # Same endpoint
         temperature=0.7,
-        streaming=True,
     )
 
 
-# Agent prompt template
-AGENT_PROMPT = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """You are a helpful AI assistant named Aria. You have access to the following tools:
-
-{tools}
-
-Use these tools when appropriate to help answer user questions. For weather queries, 
-always use the get_weather tool rather than making up information.
-
-Guidelines:
-- Be friendly and conversational
-- When using tools, explain what you're doing
-- If a tool returns an error, explain the issue to the user
-- For non-tool questions, answer directly from your knowledge
-
-Current date: {current_date}
-"""
-    ),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("human", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad"),
-])
+async def create_assistant_agent():
+    """
+    Create a LangChain agent WITH tools.
+    
+    This is the key difference from Phase 4:
+    - Phase 4: tools=[]     (no tools, just chat)
+    - Phase 5: tools=TOOLS  (can take actions!)
+    
+    The agent can now:
+    - Reason about tasks (same as Phase 4)
+    - Decide WHEN to use tools based on user queries
+    - Execute tools and incorporate results into responses
+    - Iterate towards solutions using multiple tool calls if needed
+    """
+    llm = get_llm()
+    
+    # Create agent WITH tools (the key difference from Phase 4!)
+    agent = create_agent(
+        model=llm,
+        tools=TOOLS,  # CHANGED from [] to TOOLS!
+        system_prompt=SYSTEM_PROMPT,
+    )
+    
+    return agent
 
 
 @cl.on_chat_start
 async def start():
-    """Initialize the chat session with the agent."""
-    llm = get_llm()
+    """
+    Initialize the chat session.
     
-    # Create the agent
-    agent = create_tool_calling_agent(llm, TOOLS, AGENT_PROMPT)
+    Same pattern as Phase 3 and 4, creating the agent and storing in session.
+    The welcome message now mentions the tool capabilities!
+    """
+    agent = await create_assistant_agent()
     
-    # Create the agent executor
-    agent_executor = AgentExecutor(
-        agent=agent,
-        tools=TOOLS,
-        verbose=True,
-        handle_parsing_errors=True,
-    )
-    
-    # Store in session
-    cl.user_session.set("agent_executor", agent_executor)
+    # Store agent in session (same pattern as Phase 3 and 4)
+    cl.user_session.set("agent", agent)
     cl.user_session.set("chat_history", [])
     
+    # Updated welcome message to mention tool capabilities
     await cl.Message(
         content="👋 Hi! I'm Aria, your AI assistant. I can now check the weather for you! Try asking: 'What's the weather in Paris?'"
     ).send()
@@ -82,56 +130,69 @@ async def start():
 
 @cl.on_message
 async def main(message: cl.Message):
-    """Handle messages with the agent."""
-    agent_executor = cl.user_session.get("agent_executor")
+    """
+    Handle incoming messages using the agent.
+    
+    This is more complex than Phase 4 because we need to:
+    1. Stream the agent's responses (same as Phase 4)
+    2. Detect and display tool calls as they happen (NEW!)
+    3. Show tool results before the final response (NEW!)
+    
+    We use stream_mode=["messages", "updates"] to get both:
+    - "messages": The streaming text tokens (for real-time output)
+    - "updates": Tool calls and results (for visualization)
+    """
+    # Retrieve agent and history from session (same pattern as Phase 3 and 4)
+    agent = cl.user_session.get("agent")
     chat_history = cl.user_session.get("chat_history")
     
-    # Prepare input
-    agent_input = {
-        "input": message.content,
-        "chat_history": chat_history,
-        "current_date": date.today().strftime("%B %d, %Y"),
-    }
+    # Add user message to history (same pattern as Phase 4)
+    chat_history.append({"role": "user", "content": message.content})
     
-    # Create a message for streaming
-    msg = cl.Message(content="")
+    # Stream the response from the agent
+    response_message = cl.Message(content="")
     full_response = ""
-    current_step = None
-    
-    try:
-        async for event in agent_executor.astream_events(agent_input, version="v2"):
-            kind = event["event"]
-            
-            if kind == "on_chat_model_stream":
-                content = event["data"]["chunk"].content
-                if content:
-                    full_response += content
-                    await msg.stream_token(content)
+
+    # Track tool call steps so we can update them with results
+    steps = {}
+
+    # Use agent.astream() with BOTH stream modes to get messages AND updates
+    # This is the key difference from Phase 4 - we handle tool calls!
+    async for stream_mode, data in agent.astream({"messages": chat_history}, stream_mode=["messages", "updates"]):
+        
+        # Handle "updates" - these contain tool calls and results
+        if stream_mode == "updates":
+            for source, update in data.items():
+                if source in ("model", "tools"):
+                    msg = update["messages"][-1]
                     
-            elif kind == "on_tool_start":
-                tool_name = event["name"]
-                tool_input = event["data"].get("input", {})
-                current_step = cl.Step(name=f"🔧 {tool_name}", type="tool")
-                current_step.input = str(tool_input)
-                await current_step.send()
-                
-            elif kind == "on_tool_end":
-                if current_step:
-                    tool_output = event["data"].get("output", "")
-                    current_step.output = tool_output
-                    await current_step.update()
-                    current_step = None
-        
-        if full_response:
-            await msg.send()
-        
-        # Update chat history
-        chat_history.append(HumanMessage(content=message.content))
-        chat_history.append(AIMessage(content=full_response))
-        cl.user_session.set("chat_history", chat_history)
-        
-    except Exception as e:
-        await cl.Message(
-            content=f"❌ An error occurred: {str(e)}",
-            author="System"
-        ).send()
+                    # NEW: Detect when the agent decides to call a tool
+                    if isinstance(msg, AIMessage) and msg.tool_calls:
+                        for tool_call in msg.tool_calls:
+                            # Create a visual step in Chainlit to show the tool call
+                            step = cl.Step(f"🔧 {tool_call['name']}", type="tool")
+                            step.input = tool_call["args"]
+                            await step.send()
+                            steps[tool_call["id"]] = step
+                    
+                    # NEW: Handle tool results
+                    if isinstance(msg, ToolMessage):
+                        tool_call_id = msg.tool_call_id
+                        step = steps.get(tool_call_id)
+                        if step:
+                            step.output = msg.content
+                            await step.update()
+
+        # Handle "messages" - these contain the streaming text tokens
+        # (Same pattern as Phase 4)
+        if stream_mode == "messages":
+            token, _ = data
+            if isinstance(token, AIMessageChunk):
+                full_response += token.content
+                await response_message.stream_token(token.content)
+
+    await response_message.send()
+
+    # Update message history with assistant response (same pattern as Phase 4)
+    chat_history.append({"role": "assistant", "content": full_response})
+    cl.user_session.set("chat_history", chat_history)

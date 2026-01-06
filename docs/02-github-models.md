@@ -2,38 +2,48 @@
 
 > ⏱️ **Time to complete**: 10 minutes
 
-In this phase, we'll set up access to GitHub Models - a **completely free** way to use powerful LLMs like GPT-4o, Llama, and more. No credit card required!
+In this phase, we'll set up access to GitHub Models - a **completely free** way to use powerful LLMs like GPT-4.1, Llama, and more. No credit card required!
 
 ---
 
 ## 🎯 Learning Objectives
 
 By the end of this phase, you will:
-- Understand what GitHub Models offers
+- Understand what GitHub Models offers and why we use it
 - Generate a Personal Access Token (PAT)
 - Configure your environment for API access
 - Test the connection to verify it works
+- Understand the LangChain ChatOpenAI integration
 
 ---
 
 ## 🤖 What is GitHub Models?
 
 GitHub Models is a free service that provides:
-- Access to top LLMs (GPT-4o, GPT-4o-mini, Llama 3.3, Mistral, and more)
+- Access to top LLMs (GPT-4.1, GPT-4o, Llama 3.3, Mistral, and more)
 - OpenAI-compatible API endpoints
 - No credit card or payment required
 - Rate limits suitable for development and learning
+
+### Why GitHub Models for This Workshop?
+
+| Benefit | Description |
+|---------|-------------|
+| **Free** | No cost, no credit card required |
+| **Easy Setup** | Just need a GitHub account you already have |
+| **OpenAI Compatible** | Works with existing LangChain tools |
+| **Multiple Models** | Access to various AI models |
 
 ### Available Models (as of 2026)
 
 | Model | Provider | Best For |
 |-------|----------|----------|
-| `gpt-4o` | OpenAI | Complex reasoning, best quality |
-| `gpt-4o-mini` | OpenAI | Fast responses, good quality |
+| `openai/gpt-4.1-nano` | OpenAI | Fast, efficient for learning |
+| `openai/gpt-4.1` | OpenAI | Higher quality responses |
+| `openai/gpt-4o` | OpenAI | Complex reasoning, best quality |
 | `Meta-Llama-3.3-70B-Instruct` | Meta | Open-source alternative |
-| `Mistral-Large-2411` | Mistral | European AI option |
 
-We'll use **`gpt-4o-mini`** in this workshop for fast responses.
+We'll use **`openai/gpt-4.1-nano`** in this workshop for fast responses.
 
 ---
 
@@ -107,7 +117,7 @@ Here's what happens when we call GitHub Models:
 ```
 ┌─────────────────┐     ┌──────────────────────┐     ┌─────────────┐
 │   Your App      │────▶│   GitHub Models API  │────▶│  LLM Model  │
-│   (LangChain)   │     │   (OpenAI Compatible)│     │  (GPT-4o)   │
+│   (LangChain)   │     │   (OpenAI Compatible)│     │  (GPT-4.1)  │
 └─────────────────┘     └──────────────────────┘     └─────────────┘
          │                        │
          │                        │
@@ -119,10 +129,10 @@ Here's what happens when we call GitHub Models:
 
 | Setting | Value |
 |---------|-------|
-| **API Base URL** | `https://models.inference.ai.azure.com` |
+| **API Base URL** | `https://models.github.ai/inference` |
 | **API Format** | OpenAI-compatible |
 | **Authentication** | Bearer token (your GitHub PAT) |
-| **Model Name** | e.g., `gpt-4o-mini` |
+| **Model Name** | e.g., `openai/gpt-4.1-nano` |
 
 Because the API is OpenAI-compatible, we can use `langchain-openai` package with a custom base URL.
 
@@ -132,12 +142,27 @@ Because the API is OpenAI-compatible, we can use `langchain-openai` package with
 
 Let's verify everything works with a simple test script.
 
-Create a file called `test_github_models.py`:
+Create a file called `test_github_models.py` in a new `phase-02` folder:
+
+```bash
+mkdir -p phase-02
+cd phase-02
+```
+
+Now create the test file:
 
 ```python
 """
-Test script to verify GitHub Models connection.
+Phase 2: Test GitHub Models Connection
 Run with: python test_github_models.py
+
+This script verifies that your GitHub Models connection is working correctly.
+It's the foundation for all subsequent phases.
+
+Key Concepts Introduced:
+- Loading environment variables with dotenv
+- Creating a ChatOpenAI client configured for GitHub Models
+- Making a simple LLM request
 """
 
 import os
@@ -145,7 +170,9 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
 # Load environment variables from .env file
+# This reads the GITHUB_TOKEN from your .env file
 load_dotenv()
+
 
 def main():
     # Get the token from environment
@@ -158,13 +185,14 @@ def main():
     
     print("🔄 Testing connection to GitHub Models...")
     
-    # Create the LLM client
-    # We use ChatOpenAI but point it to GitHub's endpoint
+    # Create the LLM client using LangChain's ChatOpenAI
+    # GitHub Models uses an OpenAI-compatible API, so we can use ChatOpenAI
+    # but point it to GitHub's endpoint instead of OpenAI's
     llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        api_key=github_token,
-        base_url="https://models.inference.ai.azure.com",
-        temperature=0.7,
+        model="openai/gpt-4.1-nano",  # Model format: provider/model-name
+        api_key=github_token,          # Your GitHub PAT for authentication
+        base_url="https://models.github.ai/inference",  # GitHub's inference endpoint
+        temperature=0.7,               # Controls randomness (0=deterministic, 1=creative)
     )
     
     try:
@@ -179,9 +207,20 @@ def main():
         print("- Check your internet connection")
         print("- Verify the token hasn't expired")
 
+
 if __name__ == "__main__":
     main()
 ```
+
+### 🔍 Understanding the Code
+
+| Code | What It Does |
+|------|--------------|
+| `load_dotenv()` | Reads `.env` file and loads variables into environment |
+| `os.getenv("GITHUB_TOKEN")` | Gets the token from environment |
+| `ChatOpenAI(...)` | Creates a LangChain chat model client |
+| `base_url=...` | Points to GitHub instead of OpenAI |
+| `llm.invoke(...)` | Sends a message and gets a response |
 
 Run the test:
 
@@ -206,11 +245,11 @@ When you ran the test script:
 2. **`ChatOpenAI(...)`** - Created an LLM client with:
    - Custom `base_url` pointing to GitHub's API
    - Your GitHub token as the `api_key`
-   - Model set to `gpt-4o-mini`
+   - Model set to `openai/gpt-4.1-nano`
 
 3. **`llm.invoke(...)`** - Sent an HTTP POST request to:
    ```
-   https://models.inference.ai.azure.com/chat/completions
+   https://models.github.ai/inference/chat/completions
    ```
    With headers:
    ```
@@ -220,13 +259,26 @@ When you ran the test script:
    And body:
    ```json
    {
-     "model": "gpt-4o-mini",
+     "model": "openai/gpt-4.1-nano",
      "messages": [{"role": "user", "content": "Say 'Hello, Workshop!'..."}],
      "temperature": 0.7
    }
    ```
 
-4. **Response** - GitHub routed the request to the GPT-4o-mini model and returned the completion
+4. **Response** - GitHub routed the request to the GPT-4.1-nano model and returned the completion
+
+---
+
+## 📚 Key Concepts to Remember
+
+These concepts will be used in **every subsequent phase**:
+
+| Concept | Code | Used For |
+|---------|------|----------|
+| Load env vars | `load_dotenv()` | Reading secrets from `.env` |
+| Get env var | `os.getenv("GITHUB_TOKEN")` | Accessing the token |
+| Create LLM | `ChatOpenAI(...)` | Making AI requests |
+| Send message | `llm.invoke(message)` | Getting AI responses |
 
 ---
 
@@ -238,7 +290,8 @@ langchain-chainlit-workshop/
 ├── .env                    # Now contains your GITHUB_TOKEN
 ├── .gitignore
 ├── requirements.txt
-└── test_github_models.py   # Test script (can delete after testing)
+└── phase-02/
+    └── test_github_models.py   # Test script
 ```
 
 ---
@@ -267,8 +320,8 @@ langchain-chainlit-workshop/
 - Verify the token hasn't expired
 
 ### "Model not found" or "404"
-- Check the model name is exactly `gpt-4o-mini` (case-sensitive)
-- Try `gpt-4o` if mini doesn't work
+- Check the model name is exactly `openai/gpt-4.1-nano`
+- The format is `provider/model-name`
 
 ### "Rate limit exceeded"
 - GitHub Models has rate limits for free tier
